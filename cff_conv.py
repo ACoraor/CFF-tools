@@ -8,25 +8,81 @@ import jtools
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from subtool import psub
+import pandas as pd
 import os
 
 def main():
 	""" Plot convergence of CFF error over epochs.
 	"""
-	try:
-		data = np.loadtxt(args.file)
-	except:
-		print("Data file can't be numpy-read. Trying again with truncation.")
-		cmd = 'sed -n "7,\\$p" %s > tmp' % args.file
-		psub(cmd)
-		data = np.loadtxt("tmp")
-		os.remove("tmp")
-		print("Manual truncation succeeded.")
-	json = jtools.jload(args.input)
+	#Load the file
+	txt = load_stdout(args.file)
+	
+	#Process to rmses
+	rmses = get_rmse(txt)
+	
+	#Plot mse, grad
+	plot_data(rmses)
 
-	plot_data(data,json)
+def load_stdout(fn):
+	"""Load the stdout as plaintext.
 
-def plot_data(data,json,fh=False):
+	Parameters:
+		fn: *str*
+			Path to SSAGES stdout log.
+	Returns:
+		txt: *list of str*
+			Each line of the text file.
+	"""
+	with open(fn,'r') as f:
+		txt = f.readlines()
+	return txt
+
+def get_rmse(txt):
+	"""Process the raw logs into columns of iter, mse, gamma, mu, grad.
+
+	Parameters:
+		txt: *list of str*
+			Each line of the text file.
+	Returns:
+		data: *pd.DataFrame*, shape: (n_iters, 5)
+			Iteration data from CFF. Columns are:
+			<Iter, MSE, gamma, mu, grad>
+	"""
+	#Get iterlines and gamma lines exclusively.
+	iters = [ele for ele in txt if ele[:5] == "iter:" or ele[:6] == "gamma1")]
+	
+	#Get indices of last iterations before gamma1, which are before biasing.
+	gamma_inds = [ind for ind in range(len(iters)) if iters[ind][:6] == "gamma1"]
+	gamma_inds = np.array(gamma_inds,dtype=int)
+	last_iters = [iters[i] for i in gamma_inds - 1]
+	
+	#Turn last_iters into numerical data
+	data = np.zeros((len(last_iters),5))
+	labels = ["iter", "mse", "gamma", "mu", "grad"]
+	df = pd.DataFrame()	
+
+	#Iterate dp by dp, getting values column by column
+	for i,it in enumerate(last_iters):
+		mse_ind = it.find('mse:')
+		data[i,0] = int(it[6:mse_ind-1])
+		
+		gamma_ind = it.find("gamma:")
+		data[i,1] = float(it[mse_ind+5:gamma_ind-1])
+
+		mu_ind = it.find("mu:")
+		data[i,2] = float(it[gamma_ind+7:mu_ind-1])
+		
+		grad_ind = it.find('grad:')
+		data[i,3] = int(it[mu_ind+4:grad_ind-1])
+
+		data[i,4] = float(it[grad_ind+6:-1])
+		
+	
+	return txt
+
+def plot_data(data):
+
+def plot_data(data):
 	"""Plot the data on the first 2 cvs, averaging over the 3rd.
 
 	Parameters:
